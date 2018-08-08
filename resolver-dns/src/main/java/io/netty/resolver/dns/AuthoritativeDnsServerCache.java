@@ -28,8 +28,9 @@ import java.util.List;
 public interface AuthoritativeDnsServerCache {
 
     /**
-     * Return the cached nameservers that should be used to resolve the given hostname. The returned unmodifiable
-     * {@link List} may contain unresolved {@link InetSocketAddress}es that will be resolved when needed during usage.
+     * Returns the cached nameservers that should be used to resolve the given hostname. The returned unmodifiable
+     * {@link List} may contain unresolved {@link InetSocketAddress}es that will be resolved when needed while
+     * resolving other domain names.
      *
      * @param hostname the hostname
      * @return the cached entries
@@ -37,11 +38,11 @@ public interface AuthoritativeDnsServerCache {
     List<InetSocketAddress> get(String hostname);
 
     /**
-     * Cache a nameserver that should be used to resolved the given hostname.
+     * Caches a nameserver that should be used to resolve the given hostname.
      *
      * @param hostname the hostname
      * @param address the nameserver address (which may be unresolved).
-     * @param originalTtl the TLL as returned by the DNS server
+     * @param originalTtl the TTL as returned by the DNS server
      * @param loop the {@link EventLoop} used to register the TTL timeout
      */
     void cache(String hostname, InetSocketAddress address, long originalTtl, EventLoop loop);
@@ -54,7 +55,7 @@ public interface AuthoritativeDnsServerCache {
     void clear();
 
     /**
-     * Clears the cached nameservers for specified hostname.
+     * Clears the cached nameservers for the specified hostname.
      *
      * @return {@code true} if and only if there was an entry for the specified host name in the cache and
      *         it has been removed by this method

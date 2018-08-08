@@ -70,6 +70,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1012,7 +1013,7 @@ public class DnsNameResolverTest {
                     public InetAddress address(String inetHost, ResolvedAddressTypes resolvedAddressTypes) {
                         if ("foo.com.".equals(inetHost)) {
                             try {
-                                return InetAddress.getByAddress("foo.com", new byte[]{1, 2, 3, 4});
+                                return InetAddress.getByAddress("foo.com", new byte[] { 1, 2, 3, 4 });
                             } catch (UnknownHostException e) {
                                 throw new Error(e);
                             }
@@ -1548,15 +1549,18 @@ public class DnsNameResolverTest {
 
             @Override
             protected List<InetSocketAddress> uncachedRedirectDnsServerList(
-                    String hostname, List<InetSocketAddress> nameServers) {
+                    String hostname, Collection<InetSocketAddress> resolvedNameServers,
+                    Collection<InetSocketAddress> unresolvedNameServers) {
+                List<InetSocketAddress> nameServers = super.uncachedRedirectDnsServerList(
+                        hostname, resolvedNameServers, unresolvedNameServers);
                 redirectedRef.set(nameServers);
-                return super.uncachedRedirectDnsServerList(hostname, nameServers);
+                return nameServers;
             }
         };
 
         try {
-            assertNotNull(resolver.resolveAll(hostname).await().cause());
-
+            Throwable cause = resolver.resolveAll(hostname).await().cause();
+            assertTrue(cause instanceof UnknownHostException);
             List<InetSocketAddress> redirected = redirectedRef.get();
             assertNotNull(redirected);
             assertEquals(2, redirected.size());

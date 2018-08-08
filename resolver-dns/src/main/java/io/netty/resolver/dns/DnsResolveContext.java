@@ -326,116 +326,127 @@ abstract class DnsResolveContext<T> {
 
         final InetSocketAddress nameServerAddr = nameServerAddrStream.next();
         if (nameServerAddr.isUnresolved()) {
-            final String nameServerName = PlatformDependent.javaVersion() >= 7 ?
-                    nameServerAddr.getHostString() : nameServerAddr.getHostName();
-            assert nameServerName != null;
+            queryUnresolvedNameserver(nameServerAddr, nameServerAddrStream, nameServerAddrStreamIndex, question,
+                    queryLifecycleObserver, promise, cause);
+            return;
+        }
+        final ChannelPromise writePromise = parent.ch.newPromise();
+        final Future<AddressedEnvelope<DnsResponse, InetSocketAddress>> f = parent.query0(
+                nameServerAddr, question, additionals, writePromise,
+                parent.ch.eventLoop().<AddressedEnvelope<? extends DnsResponse, InetSocketAddress>>newPromise());
+        queriesInProgress.add(f);
 
-            if (nameServerName.equals(question.name())) {
-                // If the nameserver is the same as what we want to lookup we should skip it.
-                query(nameServerAddrStream, nameServerAddrStreamIndex + 1,
-                        question, queryLifecycleObserver, promise, cause);
-                return;
-            }
+        queryLifecycleObserver.queryWritten(nameServerAddr, writePromise);
 
-            // Placeholder so we will not try to finish the original query yet.
-            final Future<AddressedEnvelope<DnsResponse, InetSocketAddress>> resolveFuture = parent.executor()
-                    .newSucceededFuture(null);
-            queriesInProgress.add(resolveFuture);
+        f.addListener(new FutureListener<AddressedEnvelope<DnsResponse, InetSocketAddress>>() {
+            @Override
+            public void operationComplete(Future<AddressedEnvelope<DnsResponse, InetSocketAddress>> future) {
+                queriesInProgress.remove(future);
 
-            Promise<List<InetAddress>> resolverPromise = parent.executor().newPromise();
-            resolverPromise.addListener(new FutureListener<List<InetAddress>>() {
-                @Override
-                public void operationComplete(final Future<List<InetAddress>> future) {
-                    // Remove placeholder.
-                    queriesInProgress.remove(resolveFuture);
+                if (promise.isDone() || future.isCancelled()) {
+                    queryLifecycleObserver.queryCancelled(allowedQueries);
 
-                    if (future.isSuccess()) {
-                        List<InetAddress> resolvedAddresses = future.getNow();
-                        DnsServerAddressStream addressStream = new CombinedDnsServerAddressStream(
-                                nameServerAddr, resolvedAddresses, nameServerAddrStream);
-                        query(addressStream, nameServerAddrStreamIndex, question,
-                                queryLifecycleObserver, promise, cause);
+                    // Check if we need to release the envelope itself. If the query was cancelled the getNow() will
+                    // return null as well as the Future will be failed with a CancellationException.
+                    AddressedEnvelope<DnsResponse, InetSocketAddress> result = future.getNow();
+                    if (result != null) {
+                        result.release();
+                    }
+                    return;
+                }
+
+                final Throwable queryCause = future.cause();
+                try {
+                    if (queryCause == null) {
+                        onResponse(nameServerAddrStream, nameServerAddrStreamIndex, question, future.getNow(),
+                                queryLifecycleObserver, promise);
                     } else {
-                        // Ignore the server and try the next one...
-                        query(nameServerAddrStream, nameServerAddrStreamIndex + 1,
-                                question, queryLifecycleObserver, promise, cause);
+                        // Server did not respond or I/O error occurred; try again.
+                        queryLifecycleObserver.queryFailed(queryCause);
+                        query(nameServerAddrStream, nameServerAddrStreamIndex + 1, question, promise, queryCause);
                     }
+                } finally {
+                    tryToFinishResolve(nameServerAddrStream, nameServerAddrStreamIndex, question,
+                            // queryLifecycleObserver has already been terminated at this point so we must
+                            // not allow it to be terminated again by tryToFinishResolve.
+                            NoopDnsQueryLifecycleObserver.INSTANCE,
+                            promise, queryCause);
                 }
-            });
-            if (!DnsNameResolver.doResolveAllCached(nameServerName, additionals, resolverPromise, resolveCache(),
-                    parent.resolvedInternetProtocolFamiliesUnsafe())) {
-                final AuthoritativeDnsServerCache authoritativeDnsServerCache = authoritativeDnsServerCache();
-                new DnsAddressResolveContext(parent, nameServerName, additionals,
-                        parent.newNameServerAddressStream(nameServerName),
-                        resolveCache(), new AuthoritativeDnsServerCache() {
-                    @Override
-                    public List<InetSocketAddress> get(String hostname) {
-                        // To not risk fall into any loop we will not use the cache during follow redirects but only
-                        // on the initial query.
-                        return Collections.emptyList();
-                    }
-
-                    @Override
-                    public void cache(String hostname, InetSocketAddress address, long originalTtl, EventLoop loop) {
-                        authoritativeDnsServerCache.cache(hostname, address, originalTtl, loop);
-                    }
-
-                    @Override
-                    public void clear() {
-                        authoritativeDnsServerCache.clear();
-                    }
-
-                    @Override
-                    public boolean clear(String hostname) {
-                        return authoritativeDnsServerCache.clear(hostname);
-                    }
-                }).resolve(resolverPromise);
             }
-        } else {
-            final ChannelPromise writePromise = parent.ch.newPromise();
-            final Future<AddressedEnvelope<DnsResponse, InetSocketAddress>> f = parent.query0(
-                    nameServerAddr, question, additionals, writePromise,
-                    parent.ch.eventLoop().<AddressedEnvelope<? extends DnsResponse, InetSocketAddress>>newPromise());
-            queriesInProgress.add(f);
+        });
+    }
 
-            queryLifecycleObserver.queryWritten(nameServerAddr, writePromise);
+    private void queryUnresolvedNameserver(final InetSocketAddress nameServerAddr,
+                                           final DnsServerAddressStream nameServerAddrStream,
+                                           final int nameServerAddrStreamIndex,
+                                           final DnsQuestion question,
+                                           final DnsQueryLifecycleObserver queryLifecycleObserver,
+                                           final Promise<List<T>> promise,
+                                           final Throwable cause) {
+        final String nameServerName = PlatformDependent.javaVersion() >= 7 ?
+                nameServerAddr.getHostString() : nameServerAddr.getHostName();
+        assert nameServerName != null;
 
-            f.addListener(new FutureListener<AddressedEnvelope<DnsResponse, InetSocketAddress>>() {
-                @Override
-                public void operationComplete(Future<AddressedEnvelope<DnsResponse, InetSocketAddress>> future) {
-                    queriesInProgress.remove(future);
+        if (nameServerName.equals(question.name())) {
+            // If the nameserver is the same as what we want to lookup we should skip it.
+            query(nameServerAddrStream, nameServerAddrStreamIndex + 1,
+                    question, queryLifecycleObserver, promise, cause);
+            return;
+        }
 
-                    if (promise.isDone() || future.isCancelled()) {
-                        queryLifecycleObserver.queryCancelled(allowedQueries);
+        // Placeholder so we will not try to finish the original query yet.
+        final Future<AddressedEnvelope<DnsResponse, InetSocketAddress>> resolveFuture = parent.executor()
+                .newSucceededFuture(null);
+        queriesInProgress.add(resolveFuture);
 
-                        // Check if we need to release the envelope itself. If the query was cancelled the getNow() will
-                        // return null as well as the Future will be failed with a CancellationException.
-                        AddressedEnvelope<DnsResponse, InetSocketAddress> result = future.getNow();
-                        if (result != null) {
-                            result.release();
-                        }
-                        return;
-                    }
+        Promise<List<InetAddress>> resolverPromise = parent.executor().newPromise();
+        resolverPromise.addListener(new FutureListener<List<InetAddress>>() {
+            @Override
+            public void operationComplete(final Future<List<InetAddress>> future) {
+                // Remove placeholder.
+                queriesInProgress.remove(resolveFuture);
 
-                    final Throwable queryCause = future.cause();
-                    try {
-                        if (queryCause == null) {
-                            onResponse(nameServerAddrStream, nameServerAddrStreamIndex, question, future.getNow(),
-                                    queryLifecycleObserver, promise);
-                        } else {
-                            // Server did not respond or I/O error occurred; try again.
-                            queryLifecycleObserver.queryFailed(queryCause);
-                            query(nameServerAddrStream, nameServerAddrStreamIndex + 1, question, promise, queryCause);
-                        }
-                    } finally {
-                        tryToFinishResolve(nameServerAddrStream, nameServerAddrStreamIndex, question,
-                                // queryLifecycleObserver has already been terminated at this point so we must
-                                // not allow it to be terminated again by tryToFinishResolve.
-                                NoopDnsQueryLifecycleObserver.INSTANCE,
-                                promise, queryCause);
-                    }
+                if (future.isSuccess()) {
+                    List<InetAddress> resolvedAddresses = future.getNow();
+                    DnsServerAddressStream addressStream = new CombinedDnsServerAddressStream(
+                            nameServerAddr, resolvedAddresses, nameServerAddrStream);
+                    query(addressStream, nameServerAddrStreamIndex, question,
+                            queryLifecycleObserver, promise, cause);
+                } else {
+                    // Ignore the server and try the next one...
+                    query(nameServerAddrStream, nameServerAddrStreamIndex + 1,
+                            question, queryLifecycleObserver, promise, cause);
                 }
-            });
+            }
+        });
+        if (!DnsNameResolver.doResolveAllCached(nameServerName, additionals, resolverPromise, resolveCache(),
+                parent.resolvedInternetProtocolFamiliesUnsafe())) {
+            final AuthoritativeDnsServerCache authoritativeDnsServerCache = authoritativeDnsServerCache();
+            new DnsAddressResolveContext(parent, nameServerName, additionals,
+                    parent.newNameServerAddressStream(nameServerName),
+                    resolveCache(), new AuthoritativeDnsServerCache() {
+                @Override
+                public List<InetSocketAddress> get(String hostname) {
+                    // To not risk falling into any loop, we will not use the cache during follow redirects but only
+                    // on the initial query.
+                    return Collections.emptyList();
+                }
+
+                @Override
+                public void cache(String hostname, InetSocketAddress address, long originalTtl, EventLoop loop) {
+                    authoritativeDnsServerCache.cache(hostname, address, originalTtl, loop);
+                }
+
+                @Override
+                public void clear() {
+                    authoritativeDnsServerCache.clear();
+                }
+
+                @Override
+                public boolean clear(String hostname) {
+                    return authoritativeDnsServerCache.clear(hostname);
+                }
+            }).resolve(resolverPromise);
         }
     }
 
@@ -524,7 +535,6 @@ abstract class DnsResolveContext<T> {
                     final InetSocketAddress socketAddress = parent.newRedirectServerAddress(resolved);
                     resolvedNameServers.add(socketAddress);
 
-                    System.err.println(socketAddress);
                     addNameServerToCache(authoritativeNameServer, socketAddress, r.timeToLive());
                 }
                 final Set<InetSocketAddress> unresolvedNameServers;
@@ -549,16 +559,9 @@ abstract class DnsResolveContext<T> {
                 }
 
                 if (!resolvedNameServers.isEmpty() || !unresolvedNameServers.isEmpty()) {
-                    System.err.println(resolvedNameServers);
-
-                    List<InetSocketAddress> addresses = new ArrayList<InetSocketAddress>(
-                            resolvedNameServers.size() + unresolvedNameServers.size());
-                    addresses.addAll(resolvedNameServers);
-                    addresses.addAll(unresolvedNameServers);
-
                     // Give the user the chance to sort or filter the used servers for the query.
                     List<InetSocketAddress> serverList = parent.uncachedRedirectDnsServerList(
-                            question.name(), addresses);
+                            question.name(), resolvedNameServers, unresolvedNameServers);
 
                     DnsServerAddressStream serverStream = DnsServerAddresses.sequentialUnresolved(serverList).stream();
                     query(serverStream, 0, question,
@@ -886,7 +889,7 @@ abstract class DnsResolveContext<T> {
             }
             InetSocketAddress address = originalStream.next();
             if (address.equals(replaced)) {
-                resolved =  resolvedAddresses.iterator();
+                resolved = resolvedAddresses.iterator();
                 return nextResolved0();
             }
             return address;

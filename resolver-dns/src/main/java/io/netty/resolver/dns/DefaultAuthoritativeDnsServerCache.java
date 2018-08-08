@@ -18,6 +18,7 @@ package io.netty.resolver.dns;
 import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.ScheduledFuture;
 import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.UnstableApi;
 
 import java.net.InetSocketAddress;
@@ -41,11 +42,11 @@ import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
 @UnstableApi
 public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServerCache {
 
-    private final ConcurrentMap<String, Entries> resolveCache = PlatformDependent.newConcurrentHashMap();
-
     // Two years are supported by all our EventLoop implementations and so safe to use as maximum.
     // See also: https://github.com/netty/netty/commit/b47fb817991b42ec8808c7d26538f3f2464e1fa6
     private static final int MAX_SUPPORTED_TTL_SECS = (int) TimeUnit.DAYS.toSeconds(365 * 2);
+
+    private final ConcurrentMap<String, Entries> resolveCache = PlatformDependent.newConcurrentHashMap();
     private final int minTtl;
     private final int maxTtl;
 
@@ -93,7 +94,7 @@ public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServe
     public List<InetSocketAddress> get(String hostname) {
         checkNotNull(hostname, "hostname");
 
-        Entries entries = resolveCache.get(hostname);
+        Entries entries = resolveCache.get(appendDot(hostname));
         if (entries == null) {
             return null;
         }
@@ -116,10 +117,11 @@ public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServe
 
         final Entry e = new Entry(address);
 
-        Entries entries = resolveCache.get(hostname);
+        String key = appendDot(hostname);
+        Entries entries = resolveCache.get(key);
         if (entries == null) {
             entries = new Entries(e);
-            Entries oldEntries = resolveCache.putIfAbsent(hostname, entries);
+            Entries oldEntries = resolveCache.putIfAbsent(key, entries);
             if (oldEntries != null) {
                 entries = oldEntries;
             }
@@ -138,7 +140,7 @@ public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServe
         } else {
             ttl = originalTtl;
         }
-        scheduleCacheExpiration(hostname, e, Math.max(minTtl,
+        scheduleCacheExpiration(key, e, Math.max(minTtl,
                 Math.min(MAX_SUPPORTED_TTL_SECS, (int) Math.min(maxTtl, ttl))), loop);
     }
 
@@ -157,7 +159,7 @@ public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServe
     @Override
     public boolean clear(String hostname) {
         checkNotNull(hostname, "hostname");
-        Entries entries = resolveCache.remove(hostname);
+        Entries entries = resolveCache.remove(appendDot(hostname));
         return entries != null && entries.clearAndCancel();
     }
 
@@ -309,5 +311,9 @@ public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServe
             EntryList entryList = getAndSet(EntryList.EMPTY);
             return entryList.cancelExpiration();
         }
+    }
+
+    private static String appendDot(String hostname) {
+        return StringUtil.endsWith(hostname, '.') ? hostname : hostname + '.';
     }
 }
