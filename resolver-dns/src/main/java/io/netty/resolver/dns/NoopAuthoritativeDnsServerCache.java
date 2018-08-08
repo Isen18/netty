@@ -19,6 +19,7 @@ import io.netty.channel.EventLoop;
 import io.netty.util.internal.UnstableApi;
 
 import java.net.InetSocketAddress;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -32,7 +33,7 @@ public final class NoopAuthoritativeDnsServerCache implements AuthoritativeDnsSe
 
     @Override
     public List<InetSocketAddress> get(String hostname) {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override

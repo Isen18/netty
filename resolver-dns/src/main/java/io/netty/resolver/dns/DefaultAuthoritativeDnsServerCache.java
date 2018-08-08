@@ -96,7 +96,7 @@ public class DefaultAuthoritativeDnsServerCache implements AuthoritativeDnsServe
 
         Entries entries = resolveCache.get(appendDot(hostname));
         if (entries == null) {
-            return null;
+            return Collections.emptyList();
         }
         return entries.get();
     }

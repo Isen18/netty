@@ -295,7 +295,7 @@ abstract class DnsResolveContext<T> {
             idx = idx2;
 
             List<InetSocketAddress> entries = authoritativeDnsServerCache().get(hostname);
-            if (entries != null && !entries.isEmpty()) {
+            if (!entries.isEmpty()) {
                 // The returned List may contain unresolved InetSocketAddress instances that will be
                 // resolved on the fly in query(....).
                 return DnsServerAddresses.sequentialUnresolved(entries).stream();

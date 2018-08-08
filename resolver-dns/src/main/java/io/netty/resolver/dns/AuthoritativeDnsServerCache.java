@@ -33,7 +33,7 @@ public interface AuthoritativeDnsServerCache {
      * resolving other domain names.
      *
      * @param hostname the hostname
-     * @return the cached entries
+     * @return the cached entries or an empty {@link List} if none.
      */
     List<InetSocketAddress> get(String hostname);
 

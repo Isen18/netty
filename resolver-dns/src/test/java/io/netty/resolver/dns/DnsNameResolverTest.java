@@ -1295,8 +1295,8 @@ public class DnsNameResolverTest {
             QuerySucceededEvent succeededEvent = (QuerySucceededEvent) observer.events.poll();
 
             if (cache) {
-                assertNull(nsCache.cache.get("io."));
-                assertNull(nsCache.cache.get("netty.io."));
+                assertTrue(nsCache.cache.get("io.").isEmpty());
+                assertTrue(nsCache.cache.get("netty.io.").isEmpty());
                 List<InetSocketAddress> entries = nsCache.cache.get("record.netty.io.");
 
                 // First address should be resolved (as we received a matching additional record), second is unresolved.
@@ -1304,7 +1304,7 @@ public class DnsNameResolverTest {
                 assertFalse(entries.get(0).isUnresolved());
                 assertTrue(entries.get(1).isUnresolved());
 
-                assertNull(nsCache.cache.get(hostname));
+                assertTrue(nsCache.cache.get(hostname).isEmpty());
 
                 // Test again via cache.
                 resolver.resolveAll(hostname).syncUninterruptibly();
@@ -1331,7 +1331,7 @@ public class DnsNameResolverTest {
 
                 // Check that it only queried the cache for record.netty.io.
                 assertNull(nsCache.cacheHits.get("io."));
-                assertNull(nsCache.cacheHits.get("netty.io."));
+                assertTrue(nsCache.cacheHits.get("netty.io.").isEmpty());
                 assertNotNull(nsCache.cacheHits.get("record.netty.io."));
                 assertNull(nsCache.cacheHits.get("some.record.netty.io."));
             }

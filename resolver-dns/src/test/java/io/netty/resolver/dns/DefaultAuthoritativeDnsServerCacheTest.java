@@ -50,7 +50,7 @@ public class DefaultAuthoritativeDnsServerCacheTest {
                 @Override
                 public Throwable call() {
                     try {
-                        assertNull(cache.get("netty.io"));
+                        assertTrue(cache.get("netty.io").isEmpty());
                         return null;
                     } catch (Throwable cause) {
                         return cause;
