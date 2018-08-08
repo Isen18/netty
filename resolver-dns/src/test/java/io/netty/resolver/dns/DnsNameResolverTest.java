@@ -95,13 +95,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
 public class DnsNameResolverTest {
 
@@ -1708,6 +1702,27 @@ public class DnsNameResolverTest {
                 .searchDomains(singletonList(".")).build();
         try {
             resolver.resolve("invalid.com").syncUninterruptibly();
+        } finally {
+            resolver.close();
+        }
+    }
+
+    @Test
+    public void testResolveACachedWithDot() {
+        final DnsCache cache = new DefaultDnsCache();
+        DnsNameResolver resolver = newResolver(ResolvedAddressTypes.IPV4_ONLY)
+                .resolveCache(cache).build();
+
+        try {
+            String domain = DOMAINS.iterator().next();
+            String domainWithDot = domain + '.';
+
+            resolver.resolve(domain).syncUninterruptibly();
+            List<? extends DnsCacheEntry> cached = cache.get(domain, null);
+            List<? extends DnsCacheEntry> cached2 = cache.get(domainWithDot, null);
+
+            assertEquals(1, cached.size());
+            assertSame(cached, cached2);
         } finally {
             resolver.close();
         }
