@@ -236,7 +236,7 @@ public class DnsNameResolver extends InetNameResolver {
      * @param ndots the ndots value
      * @param decodeIdn {@code true} if domain / host names should be decoded to unicode when received.
      *                        See <a href="https://tools.ietf.org/html/rfc3492">rfc3492</a>.
-     * @deprecated use {@link DnsNameResolver(EventLoop, ChannelFactory, DnsCache, AuthoritativeDnsServerCache,
+     * @deprecated Use {@link DnsNameResolver(EventLoop, ChannelFactory, DnsCache, AuthoritativeDnsServerCache,
      * DnsQueryLifecycleObserverFactory, long, ResolvedAddressTypes, boolean, int, boolean, int, boolean,
      * HostsFileEntriesResolver, DnsServerAddressStreamProvider, String[], int, boolean)}
      */

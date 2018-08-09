@@ -139,7 +139,7 @@ public final class DnsNameResolverBuilder {
      *
      * @param authoritativeDnsServerCache the authoritative NS servers cache
      * @return {@code this}
-     * @deprecated use {@link #authoritativeDnsServerCache(AuthoritativeDnsServerCache)}
+     * @deprecated Use {@link #authoritativeDnsServerCache(AuthoritativeDnsServerCache)}
      */
     @Deprecated
     public DnsNameResolverBuilder authoritativeDnsServerCache(DnsCache authoritativeDnsServerCache) {
